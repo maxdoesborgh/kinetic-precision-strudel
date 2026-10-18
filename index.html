@@ -1,0 +1,453 @@
+<!DOCTYPE html>
+<html lang="nl">
+<head>
+  <meta charset="UTF-8">
+  <title>Max Doesborgh — Kinetic Precision & Dark Industrial</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700;800;900&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/p5.js/1.9.0/p5.min.js"></script>
+  <style>
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+    body {
+      background: #060709;
+      color: #f8fafc;
+      font-family: 'Inter', -apple-system, sans-serif;
+      overflow: hidden;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      height: 100vh;
+      -webkit-font-smoothing: antialiased;
+    }
+    #ui {
+      position: absolute;
+      top: 32px;
+      z-index: 20;
+      display: flex;
+      align-items: center;
+      gap: 16px;
+    }
+    button {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 11px;
+      font-weight: 600;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      padding: 10px 20px;
+      background: #0f172a;
+      color: #f8fafc;
+      border: 1px solid #1e293b;
+      border-radius: 2px;
+      cursor: pointer;
+      transition: border-color 0.2s, background 0.2s;
+    }
+    button:hover {
+      border-color: #0047ff;
+      background: #141f36;
+    }
+    .status-tag {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 10px;
+      letter-spacing: 0.06em;
+      color: #64748b;
+      text-transform: uppercase;
+    }
+    .status-tag span {
+      color: #0047ff;
+      font-weight: 600;
+    }
+    .status-tag span.dark {
+      color: #94a3b8;
+      text-shadow: 0 0 8px rgba(148, 163, 184, 0.4);
+    }
+  </style>
+</head>
+<body>
+
+  <div id="ui">
+    <button id="playBtn">START AUDIO / KINETIC ENGINE</button>
+    <div id="phase-tag" class="status-tag">SYSTEM: <span>OFFLINE</span></div>
+  </div>
+
+  <script>
+    // --- 1. WEB AUDIO PRECISION ENGINE (4 FASEN) ---
+    let audioCtx = null;
+    let isPlaying = false;
+    let step = 0;
+    let totalBars = 0;
+    let intervalId = null;
+
+    let kickImpact = 0;
+    let hatImpact = 0;
+    let techImpact = 0;
+    let darkDroneImpact = 0;
+    let currentPhase = 0; // 0=Pulse, 1=Structure, 2=Tech, 3=Dark Industrial
+
+    function initAudio() {
+      if (!audioCtx) {
+        audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+      }
+      if (audioCtx.state === 'suspended') {
+        audioCtx.resume();
+      }
+    }
+
+    // 1. Kick (Wordt zwaarder en killer in Fase 4)
+    function playKick(time, punch = 1.0) {
+      const osc = audioCtx.createOscillator();
+      const gain = audioCtx.createGain();
+
+      let startFreq = currentPhase === 3 ? 110 : 135;
+      let endFreq = currentPhase === 3 ? 24 : 30;
+
+      osc.frequency.setValueAtTime(startFreq * punch, time);
+      osc.frequency.exponentialRampToValueAtTime(endFreq, time + 0.14);
+
+      gain.gain.setValueAtTime(1.1 * punch, time);
+      gain.gain.exponentialRampToValueAtTime(0.001, time + (currentPhase === 3 ? 0.32 : 0.22));
+
+      osc.connect(gain);
+      gain.connect(audioCtx.destination);
+
+      osc.start(time);
+      osc.stop(time + 0.35);
+    }
+
+    // 2. Click / Hi-Hat
+    function playHat(time, open = false) {
+      const dur = open ? 0.18 : 0.03;
+      const bufferSize = audioCtx.sampleRate * dur;
+      const buffer = audioCtx.createBuffer(1, bufferSize, audioCtx.sampleRate);
+      const data = buffer.getChannelData(0);
+      for (let i = 0; i < bufferSize; i++) {
+        data[i] = Math.random() * 2 - 1;
+      }
+
+      const noise = audioCtx.createBufferSource();
+      noise.buffer = buffer;
+
+      const filter = audioCtx.createBiquadFilter();
+      filter.type = "highpass";
+      filter.frequency.value = open ? 6500 : 9500;
+
+      const gain = audioCtx.createGain();
+      gain.gain.setValueAtTime(open ? 0.35 : 0.16, time);
+      gain.gain.exponentialRampToValueAtTime(0.001, time + dur);
+
+      noise.connect(filter);
+      filter.connect(gain);
+      gain.connect(audioCtx.destination);
+
+      noise.start(time);
+      noise.stop(time + dur);
+    }
+
+    // 3. Tech Glitch Blip
+    function playDataBlip(time, freq = 2400) {
+      const osc = audioCtx.createOscillator();
+      const gain = audioCtx.createGain();
+
+      osc.type = "sine";
+      osc.frequency.setValueAtTime(freq, time);
+      osc.frequency.exponentialRampToValueAtTime(600, time + 0.04);
+
+      gain.gain.setValueAtTime(0.2, time);
+      gain.gain.exponentialRampToValueAtTime(0.001, time + 0.045);
+
+      osc.connect(gain);
+      gain.connect(audioCtx.destination);
+
+      osc.start(time);
+      osc.stop(time + 0.05);
+    }
+
+    // 4. Sub Bas (Fase 1-2)
+    function playBass(time, freq) {
+      const osc = audioCtx.createOscillator();
+      const filter = audioCtx.createBiquadFilter();
+      const gain = audioCtx.createGain();
+
+      osc.type = "sine";
+      osc.frequency.setValueAtTime(freq, time);
+
+      filter.type = "lowpass";
+      filter.frequency.setValueAtTime(260, time);
+
+      gain.gain.setValueAtTime(0.45, time);
+      gain.gain.exponentialRampToValueAtTime(0.001, time + 0.18);
+
+      osc.connect(filter);
+      filter.connect(gain);
+      gain.connect(audioCtx.destination);
+
+      osc.start(time);
+      osc.stop(time + 0.2);
+    }
+
+    // 5. DE NIEUWE DONKERE SAMPLE (Fase 4: Industrial Dark Drone & Sub Impact)
+    function playDarkDrone(time, freq = 43.65) { // Lage F1 / C1 noot
+      const osc1 = audioCtx.createOscillator();
+      const osc2 = audioCtx.createOscillator();
+      const filter = audioCtx.createBiquadFilter();
+      const distortion = audioCtx.createWaveShaper();
+      const gain = audioCtx.createGain();
+
+      osc1.type = "sawtooth";
+      osc1.frequency.setValueAtTime(freq, time);
+
+      // Lichte detune voor een duister, zwevend effect
+      osc2.type = "triangle";
+      osc2.frequency.setValueAtTime(freq * 0.995, time);
+
+      filter.type = "lowpass";
+      filter.frequency.setValueAtTime(180, time);
+      filter.frequency.exponentialRampToValueAtTime(650, time + 0.4);
+      filter.frequency.exponentialRampToValueAtTime(140, time + 1.2);
+      filter.Q.value = 8;
+
+      gain.gain.setValueAtTime(0.55, time);
+      gain.gain.exponentialRampToValueAtTime(0.01, time + 1.2);
+
+      osc1.connect(filter);
+      osc2.connect(filter);
+      filter.connect(gain);
+      gain.connect(audioCtx.destination);
+
+      osc1.start(time);
+      osc2.start(time);
+      osc1.stop(time + 1.25);
+      osc2.stop(time + 1.25);
+    }
+
+    function audioClock() {
+      const now = audioCtx.currentTime;
+
+      if (step === 0) totalBars++;
+
+      // Gestructureerde fasen (Intro -> Structure -> Tech -> Dark Drone)
+      if (totalBars <= 4) {
+        currentPhase = 0;
+        document.getElementById("phase-tag").innerHTML = "STATUS: <span>01 // PULSE</span>";
+      } else if (totalBars <= 8) {
+        currentPhase = 1;
+        document.getElementById("phase-tag").innerHTML = "STATUS: <span>02 // STRUCTURE</span>";
+      } else if (totalBars <= 12) {
+        currentPhase = 2;
+        document.getElementById("phase-tag").innerHTML = "STATUS: <span>03 // KINETIC TECH</span>";
+      } else {
+        currentPhase = 3;
+        document.getElementById("phase-tag").innerHTML = "STATUS: <span class='dark'>04 // DARK INDUSTRIAL</span>";
+      }
+
+      // Kick op tel 0, 4, 8, 12
+      if (step % 4 === 0) {
+        playKick(now, currentPhase === 3 ? 1.3 : 1.0);
+        kickImpact = 1.0;
+      }
+
+      // Hats
+      if (currentPhase >= 1 && currentPhase < 3) {
+        if (step % 4 === 2) {
+          playHat(now, true);
+          hatImpact = 1.0;
+        } else if (step % 2 === 0 && currentPhase === 2) {
+          playHat(now, false);
+        }
+      } else if (currentPhase === 3) {
+        // In de donkere fase enkel kille minimale offbeat ticks
+        if (step % 4 === 2) {
+          playHat(now, false);
+          hatImpact = 0.6;
+        }
+      }
+
+      // Sub Bas (Fase 1 & 2)
+      if ((currentPhase === 1 || currentPhase === 2) && step % 2 === 1) {
+        const notes = [65.41, 65.41, 73.42, 65.41];
+        playBass(now, notes[Math.floor(step / 4)]);
+      }
+
+      // Tech sound triggers (Fase 2)
+      if (currentPhase === 2 && (step === 3 || step === 11)) {
+        playDataBlip(now, step === 3 ? 3200 : 2600);
+        techImpact = 1.0;
+      }
+
+      // DONKERE TUNES TRIGGER (Fase 4: Drone valt in op tel 0 en 8)
+      if (currentPhase === 3 && (step === 0 || step === 8)) {
+        let root = step === 0 ? 43.65 : 38.89; // F1 / Eb1
+        playDarkDrone(now, root);
+        darkDroneImpact = 1.0;
+      }
+
+      step = (step + 1) % 16;
+    }
+
+    // --- 2. P5.JS SWISS MINIMALIST & DARK MOTION ---
+    const NAME = "MAX DOESBORGH";
+
+    function setup() {
+      createCanvas(windowWidth, windowHeight);
+      rectMode(CENTER);
+      textAlign(CENTER, CENTER);
+    }
+
+    function draw() {
+      // Donkerder palet in fase 4
+      let bgDarkness = currentPhase === 3 ? 6 : 8;
+      background(bgDarkness, bgDarkness + 1, bgDarkness + 2, 45);
+
+      kickImpact *= 0.88;
+      hatImpact *= 0.84;
+      techImpact *= 0.80;
+      darkDroneImpact *= 0.94; // Zakt traag weg als een diepe galm
+
+      let cx = width / 2;
+      let cy = height / 2;
+      let t = frameCount * 0.03;
+
+      // 1. Rasterlijnen
+      stroke(255, 255, 255, currentPhase === 3 ? 8 : 12);
+      strokeWeight(1);
+      line(0, cy, width, cy);
+      line(cx, 0, cx, height);
+
+      // 2. Haarscherpe 1px Box
+      push();
+      translate(cx, cy);
+      let boxAlpha = currentPhase === 3 ? (20 + darkDroneImpact * 80) : (30 + kickImpact * 90);
+      stroke(255, 255, 255, boxAlpha);
+      strokeWeight(1);
+      noFill();
+      let boxW = 540 + kickImpact * 40 + darkDroneImpact * 60;
+      let boxH = 120 + kickImpact * 16 + darkDroneImpact * 24;
+      rect(0, 0, boxW, boxH);
+
+      // Hoekjes
+      if (currentPhase === 3) {
+        stroke(148, 163, 184, 120 + darkDroneImpact * 120); // Donker zilver/slate
+      } else {
+        stroke(0, 71, 255, 160 + techImpact * 95);
+      }
+      strokeWeight(1.5);
+      let hw = boxW / 2;
+      let hh = boxH / 2;
+      line(-hw, -hh, -hw + 10, -hh);
+      line(-hw, -hh, -hw, -hh + 10);
+      line(hw, hh, hw - 10, hh);
+      line(hw, hh, hw, hh - 10);
+      pop();
+
+      // 3. Typografie met Inter
+      textFont('Inter, sans-serif');
+      textStyle(currentPhase === 3 ? 900 : 700);
+
+      if (currentPhase === 0) {
+        drawingContext.letterSpacing = (6 + kickImpact * 4) + "px";
+        textSize(42 + kickImpact * 6);
+        fill(248, 250, 252);
+        noStroke();
+        text(NAME, cx, cy);
+      } 
+      else if (currentPhase === 1) {
+        let offset = sin(t * 1.5) * (15 + hatImpact * 20);
+        fill(255, 255, 255, 22 + hatImpact * 35);
+        drawingContext.letterSpacing = "6px";
+        textSize(38);
+        text(NAME, cx - offset, cy - 38);
+
+        fill(255);
+        drawingContext.letterSpacing = (6 + kickImpact * 6) + "px";
+        textSize(42 + kickImpact * 6);
+        text(NAME, cx, cy);
+
+        fill(255, 255, 255, 22 + hatImpact * 35);
+        drawingContext.letterSpacing = "6px";
+        textSize(38);
+        text(NAME, cx + offset, cy + 38);
+      } 
+      else if (currentPhase === 2) {
+        let slitOffset = sin(t * 3) * (8 + kickImpact * 18);
+        drawingContext.letterSpacing = (8 + kickImpact * 8) + "px";
+        textSize(44 + kickImpact * 6);
+
+        fill(255, 255, 255, 28);
+        text(NAME, cx + slitOffset, cy - 2);
+
+        fill(255);
+        text(NAME, cx - slitOffset, cy);
+
+        fill(0, 71, 255, 180 + techImpact * 75);
+        noStroke();
+        circle(cx + boxW / 2 + 18, cy, 4 + techImpact * 6);
+      }
+      else {
+        // --- FASE 4: DARK INDUSTRIAL TYPOGRAFIE ---
+        // Duistere, zware deconstructie: diepe ademhaling synchroon met de drone
+        let droneWave = sin(t * 1.2) * (12 + darkDroneImpact * 26);
+
+        // Diepe achtergrond-contour
+        fill(255, 255, 255, 16 + darkDroneImpact * 40);
+        drawingContext.letterSpacing = (12 + darkDroneImpact * 16) + "px";
+        textSize(48 + darkDroneImpact * 10);
+        text(NAME, cx, cy - droneWave);
+
+        // Donkere voorgrond met minimale rand
+        fill(240, 243, 246);
+        drawingContext.letterSpacing = (10 + darkDroneImpact * 12) + "px";
+        textSize(46 + darkDroneImpact * 8);
+        text(NAME, cx, cy);
+
+        // Horizontale donkere snijlijnen die op de drone openschuiven
+        stroke(255, 255, 255, 30 + darkDroneImpact * 80);
+        strokeWeight(1);
+        let slitW = 260 + darkDroneImpact * 90;
+        line(cx - slitW, cy - 28, cx + slitW, cy - 28);
+        line(cx - slitW, cy + 28, cx + slitW, cy + 28);
+      }
+
+      // 4. Data HUD info
+      textFont('JetBrains Mono, monospace');
+      textSize(9);
+      if (currentPhase === 3) {
+        fill(148, 163, 184, 160 + darkDroneImpact * 95);
+        drawingContext.letterSpacing = "0.14em";
+        text("43.65 HZ // DARK DRONE OVERLAY // SEISMIC ENGINE", cx, cy + 85);
+      } else {
+        fill(100, 116, 139, 140 + techImpact * 80);
+        drawingContext.letterSpacing = "0.12em";
+        let hexCode = (frameCount % 256).toString(16).toUpperCase().padStart(2, '0');
+        text(`134.00 BPM // CLK: 0x${hexCode} // SYNC AUDIO`, cx, cy + 85);
+      }
+    }
+
+    function windowResized() {
+      resizeCanvas(windowWidth, windowHeight);
+    }
+
+    const btn = document.getElementById("playBtn");
+    btn.addEventListener("click", () => {
+      initAudio();
+      if (!isPlaying) {
+        isPlaying = true;
+        totalBars = 0;
+        step = 0;
+        btn.innerText = "PAUZEER";
+        btn.style.borderColor = "#e2e8f0";
+        intervalId = setInterval(audioClock, (60 / 134 / 4) * 1000);
+      } else {
+        isPlaying = false;
+        btn.innerText = "HERSTART ENGINE";
+        btn.style.borderColor = "#1e293b";
+        document.getElementById("phase-tag").innerHTML = "SYSTEM: <span>PAUSED</span>";
+        clearInterval(intervalId);
+      }
+    });
+  </script>
+</body>
+</html>
